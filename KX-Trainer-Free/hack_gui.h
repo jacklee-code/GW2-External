@@ -25,7 +25,6 @@ private:
     // UI Rendering Methods
     void RenderAlwaysOnTop();
     void RenderTogglesSection();
-    void RenderActionsSection();
     void RenderHotkeysSection();
     void RenderLogSection();
     void RenderInfoSection();

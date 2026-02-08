@@ -195,17 +195,6 @@ void HackGUI::RenderTogglesSection() {
     }
 }
 
-// Renders the collapsible section with action buttons
-void HackGUI::RenderActionsSection() {
-    if (ImGui::CollapsingHeader("Actions", ImGuiTreeNodeFlags_DefaultOpen)) {
-        float button_width = ImGui::GetContentRegionAvail().x * 0.48f; // Approx half width
-        if (ImGui::Button("Save Position", ImVec2(button_width, 0))) { m_hack.savePosition(); }
-        ImGui::SameLine();
-        if (ImGui::Button("Load Position", ImVec2(-1.0f, 0))) { m_hack.loadPosition(); } // Fill remaining
-        ImGui::Spacing();
-    }
-}
-
 // Renders the collapsible section for configuring hotkeys
 void HackGUI::RenderHotkeysSection() {
     if (ImGui::CollapsingHeader("Hotkeys")) {
@@ -345,12 +334,30 @@ bool HackGUI::renderUI()
     // Apply continuous states based on user preference toggles
     m_hack.handleSprint(m_sprintEnabled);
 
-    // Render UI sections
-    RenderTogglesSection();
-    RenderActionsSection();
-    RenderHotkeysSection();
-    RenderLogSection();
-    RenderInfoSection();
+    // Render UI sections in tabs
+    if (ImGui::BeginTabBar("MainTabBar", ImGuiTabBarFlags_None)) {
+        // Core Tab
+        if (ImGui::BeginTabItem("Core")) {
+            RenderTogglesSection();
+            RenderHotkeysSection();
+            RenderLogSection();
+            RenderInfoSection();
+            ImGui::EndTabItem();
+        }
+
+        // Teleport Tab
+        if (ImGui::BeginTabItem("Teleport")) {
+            // Content from RenderActionsSection()
+            float button_width = ImGui::GetContentRegionAvail().x * 0.48f; // Approx half width
+            if (ImGui::Button("Save Position", ImVec2(button_width, 0))) { m_hack.savePosition(); }
+            ImGui::SameLine();
+            if (ImGui::Button("Load Position", ImVec2(-1.0f, 0))) { m_hack.loadPosition(); } // Fill remaining
+            ImGui::Spacing();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
 
     ImGui::End();
 
