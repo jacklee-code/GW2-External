@@ -348,7 +348,8 @@ bool HackGUI::renderUI()
         // Teleport Tab
         if (ImGui::BeginTabItem("Teleport")) {
             // Content from RenderActionsSection()
-            float button_width = ImGui::GetContentRegionAvail().x * 0.48f; // Approx half width
+            constexpr float BUTTON_WIDTH_RATIO = 0.48f; // Approx half width for side-by-side buttons
+            float button_width = ImGui::GetContentRegionAvail().x * BUTTON_WIDTH_RATIO;
             if (ImGui::Button("Save Position", ImVec2(button_width, 0))) { m_hack.savePosition(); }
             ImGui::SameLine();
             if (ImGui::Button("Load Position", ImVec2(-1.0f, 0))) { m_hack.loadPosition(); } // Fill remaining
