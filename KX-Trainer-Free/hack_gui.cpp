@@ -16,7 +16,7 @@
 #include <fstream>
 #include <sstream>
 
-HackGUI::HackGUI(Hack& hack) : m_hack(hack), m_rebinding_hotkey_id(HotkeyID::NONE), m_deleteTeleportGroupIndex(0) {
+HackGUI::HackGUI(Hack& hack) : m_hack(hack), m_rebinding_hotkey_id(HotkeyID::NONE) {
     // Define all available hotkeys and their default properties
     m_hotkeys = {
         {HotkeyID::SAVE_POS,             "Save Position",   Constants::Hotkeys::KEY_SAVEPOS,         HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.savePosition(); }},
@@ -365,8 +365,6 @@ bool HackGUI::renderUI()
     }
 
     // Render popup modals (must be within the same window context)
-    RenderDeleteGroupConfirmWindow();
-    RenderDeleteTeleportConfirmWindow();
     RenderImportScaleWindow();
 
     ImGui::End();
@@ -420,13 +418,16 @@ void HackGUI::RenderTeleportsTab() {
             
             ImGui::SameLine();
             
-            // Delete button - Fixed: Store both group and teleport index
+            // Delete button - Using MessageBox for reliable confirmation
             std::string deleteLabel = "X##tp_" + std::to_string(m_selectedGroupIndex) + "_" + std::to_string(i);
             if (ImGui::Button(deleteLabel.c_str(), ImVec2(deleteBtnWidth, 0))) {
-                m_deleteTeleportGroupIndex = m_selectedGroupIndex; // Store current group
-                m_deleteTeleportIndex = static_cast<int>(i);
-                m_showDeleteTeleportConfirm = true;
-                m_focusNextWindow = true;
+                std::string message = "Delete teleport '" + tp.name + "'?";
+                int result = MessageBoxA(NULL, message.c_str(), "Confirm Delete Teleport", MB_OKCANCEL | MB_ICONWARNING | MB_SYSTEMMODAL);
+                if (result == IDOK) {
+                    if (m_teleportManager.deleteTeleport(m_selectedGroupIndex, i)) {
+                        StatusUI::AddMessage("INFO: Teleport deleted");
+                    }
+                }
             }
         }
     }
@@ -512,9 +513,20 @@ void HackGUI::RenderTeleportsTab() {
     
     // Delete Group button
     if (ImGui::Button(u8"\u274C##DeleteGroup", ImVec2(iconBtnWidth, 0))) {  // ❌
-        m_deleteGroupIndex = m_selectedGroupIndex;
-        m_showDeleteGroupConfirm = true;
-        m_focusNextWindow = true;
+        const TeleportGroup* group = m_teleportManager.getGroup(m_selectedGroupIndex);
+        if (group) {
+            std::string message = "Delete group '" + group->name + "'?\n\nThis will delete all teleports in this group.";
+            int result = MessageBoxA(NULL, message.c_str(), "Confirm Delete Group", MB_OKCANCEL | MB_ICONWARNING | MB_SYSTEMMODAL);
+            if (result == IDOK) {
+                if (m_teleportManager.deleteGroup(m_selectedGroupIndex)) {
+                    StatusUI::AddMessage("INFO: Group deleted");
+                    if (m_selectedGroupIndex >= static_cast<int>(m_teleportManager.getGroupCount())) {
+                        m_selectedGroupIndex = static_cast<int>(m_teleportManager.getGroupCount()) - 1;
+                    }
+                    if (m_selectedGroupIndex < 0) m_selectedGroupIndex = 0;
+                }
+            }
+        }
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Delete Group");
@@ -800,82 +812,5 @@ void HackGUI::RenderImportScaleWindow() {
     }
 }
 
-void HackGUI::RenderDeleteGroupConfirmWindow() {
-    if (m_showDeleteGroupConfirm) {
-        ImGui::OpenPopup("Confirm Delete Group");
-        m_showDeleteGroupConfirm = false;
-    }
-    
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(350, 0));
-    
-    if (ImGui::BeginPopupModal("Confirm Delete Group", nullptr, ImGuiWindowFlags_NoResize)) {
-        const TeleportGroup* group = m_teleportManager.getGroup(m_deleteGroupIndex);
-        if (group) {
-            ImGui::Text("Delete group '%s'?", group->name.c_str());
-            ImGui::Text("This will delete all teleports in this group.");
-        } else {
-            ImGui::Text("Invalid group selected.");
-        }
-        
-        ImGui::Separator();
-        
-        if (ImGui::Button("Delete", ImVec2(120, 0))) {
-            if (m_teleportManager.deleteGroup(m_deleteGroupIndex)) {
-                StatusUI::AddMessage("INFO: Group deleted");
-                if (m_selectedGroupIndex >= static_cast<int>(m_teleportManager.getGroupCount())) {
-                    m_selectedGroupIndex = static_cast<int>(m_teleportManager.getGroupCount()) - 1;
-                }
-                if (m_selectedGroupIndex < 0) m_selectedGroupIndex = 0;
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        
-        ImGui::SameLine();
-        
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-            ImGui::CloseCurrentPopup();
-        }
-        
-        ImGui::EndPopup();
-    }
-}
-
-void HackGUI::RenderDeleteTeleportConfirmWindow() {
-    if (m_showDeleteTeleportConfirm) {
-        ImGui::OpenPopup("Confirm Delete Teleport");
-        m_showDeleteTeleportConfirm = false;
-    }
-    
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(350, 0));
-    
-    if (ImGui::BeginPopupModal("Confirm Delete Teleport", nullptr, ImGuiWindowFlags_NoResize)) {
-        const TeleportGroup* group = m_teleportManager.getGroup(m_deleteTeleportGroupIndex);
-        if (group && m_deleteTeleportIndex >= 0 && m_deleteTeleportIndex < static_cast<int>(group->teleports.size())) {
-            const auto& tp = group->teleports[m_deleteTeleportIndex];
-            ImGui::Text("Delete teleport '%s'?", tp.name.c_str());
-        } else {
-            ImGui::Text("Invalid teleport selected.");
-        }
-        
-        ImGui::Separator();
-        
-        if (ImGui::Button("Delete", ImVec2(120, 0))) {
-            if (m_teleportManager.deleteTeleport(m_deleteTeleportGroupIndex, m_deleteTeleportIndex)) {
-                StatusUI::AddMessage("INFO: Teleport deleted");
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        
-        ImGui::SameLine();
-        
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-            ImGui::CloseCurrentPopup();
-        }
-        
-        ImGui::EndPopup();
-    }
-}
+// Removed: RenderDeleteGroupConfirmWindow and RenderDeleteTeleportConfirmWindow
+// Now using Windows MessageBoxA API for more reliable confirmation dialogs

@@ -28,12 +28,7 @@ private:
     int m_selectedGroupIndex = 0;
     int m_editingTeleportIndex = -1;
     bool m_showEditTeleportWindow = false;
-    bool m_showDeleteGroupConfirm = false;
-    bool m_showDeleteTeleportConfirm = false;
     bool m_focusNextWindow = false; // Set focus only once when opening a sub-window
-    int m_deleteGroupIndex = -1;
-    int m_deleteTeleportIndex = -1;
-    int m_deleteTeleportGroupIndex = -1; // Track which group the teleport belongs to
     bool m_showAddGroupWindow = false;
     bool m_showRenameGroupWindow = false;
     
@@ -62,8 +57,6 @@ private:
     void RenderEditTeleportWindow();
     void RenderAddGroupWindow();
     void RenderRenameGroupWindow();
-    void RenderDeleteGroupConfirmWindow();
-    void RenderDeleteTeleportConfirmWindow();
     void RenderImportScaleWindow();
 
     // Logic Handling Methods
