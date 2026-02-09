@@ -27,12 +27,8 @@ private:
     TeleportManager m_teleportManager;
     int m_selectedGroupIndex = 0;
     int m_editingTeleportIndex = -1;
-    bool m_showEditTeleportWindow = false;
-    bool m_focusNextWindow = false; // Set focus only once when opening a sub-window
-    bool m_showAddGroupWindow = false;
-    bool m_showRenameGroupWindow = false;
     
-    // Edit window state
+    // Edit window state (used for Set Current Position loop)
     char m_editTeleportName[128] = "";
     float m_editTeleportCoords[3] = { 0.0f, 0.0f, 0.0f };
     int m_editTeleportMapId = -1;
@@ -40,7 +36,7 @@ private:
     // Add/Rename group state
     char m_newGroupName[128] = "";
     
-    // Import scale state
+    // Import scale state (only popup still using ImGui modal - triggered after file dialog so focus is guaranteed)
     bool m_showImportScaleWindow = false;
     std::string m_importJsonContent;
     std::string m_importFilePath;
@@ -54,10 +50,7 @@ private:
     void RenderLogSection();
     void RenderInfoSection();
     void RenderTeleportsTab();
-    void RenderEditTeleportWindow();
-    void RenderAddGroupWindow();
-    void RenderRenameGroupWindow();
-    void RenderImportScaleWindow();
+    void RenderImportScalePopup();
 
     // Logic Handling Methods
     void HandleHotkeys();
