@@ -49,17 +49,16 @@ namespace Constants {
     // Hotkeys
     namespace Hotkeys {
         // Recommended Default Bindings
-        constexpr int KEY_SAVEPOS = VK_F5;          // F5
-        constexpr int KEY_LOADPOS = VK_F6;          // F6
         constexpr int KEY_INVISIBILITY = VK_F7;     // F7
         constexpr int KEY_WALLCLIMB = VK_F8;        // F8
         constexpr int KEY_CLIPPING = VK_F9;         // F9
         constexpr int KEY_OBJECT_CLIPPING = VK_F10; // F10
         constexpr int KEY_FULL_STRAFE = VK_INSERT;  // Insert
-        constexpr int KEY_NO_FOG = VK_HOME;         // Home
+        constexpr int KEY_NO_FOG = VK_F5;           // F5
         constexpr int KEY_SUPER_SPRINT = VK_RSHIFT; // Right Shift
         constexpr int KEY_SPRINT = VK_LSHIFT;       // Left Shift
         constexpr int KEY_FLY = VK_LCONTROL;        // Left Ctrl
+        constexpr int KEY_TOGGLE_WINDOW = VK_HOME;  // Home
     }
 
     // Settings

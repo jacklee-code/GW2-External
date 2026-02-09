@@ -7,8 +7,6 @@ class Hack; // Forward declaration needed for the action function signature
 
 enum class HotkeyID {
     NONE = -1, // Represents no hotkey being rebound
-    SAVE_POS,
-    LOAD_POS,
     TOGGLE_INVISIBILITY,
     TOGGLE_WALLCLIMB,
     TOGGLE_CLIPPING,
@@ -17,7 +15,8 @@ enum class HotkeyID {
     TOGGLE_NO_FOG,
     HOLD_SUPER_SPRINT,
     TOGGLE_SPRINT_PREF, // Hotkey to toggle the m_sprintEnabled preference flag
-    HOLD_FLY
+    HOLD_FLY,
+    TOGGLE_WINDOW // Hotkey to toggle window visibility
 };
 
 enum class HotkeyTriggerType {

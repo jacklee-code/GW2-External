@@ -12,12 +12,14 @@ class HackGUI {
 public:
     HackGUI(Hack& hack);
     bool renderUI();
+    bool IsWindowCollapsed() const { return m_windowCollapsed; }
 
 private:
     Hack& m_hack;
 
     // Only GUI-specific state or user preferences here
     bool m_sprintEnabled = false; // User's preference toggle for sprint mode
+    bool m_windowCollapsed = false;  // Window collapsed state (true = collapsed to title bar only)
 
     // Refactored Hotkey Management
     std::vector<HotkeyInfo> m_hotkeys;
@@ -55,6 +57,10 @@ private:
     // Logic Handling Methods
     void HandleHotkeys();
     void HandleHotkeyRebinding();
+
+    // Hotkey Configuration
+    void SaveHotkeyConfig();
+    void LoadHotkeyConfig();
 
     // Helpers
     void RenderHotkeyControl(HotkeyInfo& hotkey);

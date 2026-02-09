@@ -14,7 +14,7 @@
     <VCProjectVersion>16.0</VCProjectVersion>
     <ProjectGuid>{8AD3AA0A-56D4-447B-9879-29C359DBF2C9}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>KXTrainerFree</RootNamespace>
+    <RootNamespace>GW2External</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectName>GW2-External</ProjectName>
   </PropertyGroup>

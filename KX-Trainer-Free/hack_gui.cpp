@@ -7,6 +7,7 @@
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
+#include "nlohmann/json.hpp"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -15,24 +16,25 @@
 #include <mutex>
 #include <fstream>
 #include <sstream>
+#include <filesystem>
 
 HackGUI::HackGUI(Hack& hack) : m_hack(hack), m_rebinding_hotkey_id(HotkeyID::NONE) {
-    // Define all available hotkeys and their default properties
-    m_hotkeys = {
-        {HotkeyID::SAVE_POS,             "Save Position",   Constants::Hotkeys::KEY_SAVEPOS,         HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.savePosition(); }},
-        {HotkeyID::LOAD_POS,             "Load Position",   Constants::Hotkeys::KEY_LOADPOS,         HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.loadPosition(); }},
-        {HotkeyID::TOGGLE_INVISIBILITY,  "Invisibility",    Constants::Hotkeys::KEY_INVISIBILITY,    HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleInvisibility(!h.IsInvisibilityEnabled()); }},
-        {HotkeyID::TOGGLE_WALLCLIMB,     "Wall Climb",      Constants::Hotkeys::KEY_WALLCLIMB,       HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleWallClimb(!h.IsWallClimbEnabled()); }},
-        {HotkeyID::TOGGLE_CLIPPING,      "Clipping",        Constants::Hotkeys::KEY_CLIPPING,        HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleClipping(!h.IsClippingEnabled()); }},
-        {HotkeyID::TOGGLE_OBJECT_CLIPPING,"Object Clipping", Constants::Hotkeys::KEY_OBJECT_CLIPPING, HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleObjectClipping(!h.IsObjectClippingEnabled()); }},
-        {HotkeyID::TOGGLE_FULL_STRAFE,   "Full Strafe",     Constants::Hotkeys::KEY_FULL_STRAFE,     HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleFullStrafe(!h.IsFullStrafeEnabled()); }},
-        {HotkeyID::TOGGLE_NO_FOG,        "No Fog",          Constants::Hotkeys::KEY_NO_FOG,          HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleFog(!h.IsFogEnabled()); }},
-        {HotkeyID::HOLD_SUPER_SPRINT,    "Super Sprint",    Constants::Hotkeys::KEY_SUPER_SPRINT,    HotkeyTriggerType::ON_HOLD,  [](Hack& h, bool held) { h.handleSuperSprint(held); }},
-        {HotkeyID::TOGGLE_SPRINT_PREF,   "Sprint",          Constants::Hotkeys::KEY_SPRINT,          HotkeyTriggerType::ON_PRESS, [this](Hack& /*h*/, bool) { this->m_sprintEnabled = !this->m_sprintEnabled; }}, // Toggles the GUI preference flag
-        {HotkeyID::HOLD_FLY,             "Fly",             Constants::Hotkeys::KEY_FLY,             HotkeyTriggerType::ON_HOLD,  [](Hack& h, bool held) { h.handleFly(held); }}
-    };
+// Define all available hotkeys and their default properties
+m_hotkeys = {
+    {HotkeyID::TOGGLE_INVISIBILITY,  "Invisibility",    Constants::Hotkeys::KEY_INVISIBILITY,    HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleInvisibility(!h.IsInvisibilityEnabled()); }},
+    {HotkeyID::TOGGLE_WALLCLIMB,     "Wall Climb",      Constants::Hotkeys::KEY_WALLCLIMB,       HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleWallClimb(!h.IsWallClimbEnabled()); }},
+    {HotkeyID::TOGGLE_CLIPPING,      "Clipping",        Constants::Hotkeys::KEY_CLIPPING,        HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleClipping(!h.IsClippingEnabled()); }},
+    {HotkeyID::TOGGLE_OBJECT_CLIPPING,"Object Clipping", Constants::Hotkeys::KEY_OBJECT_CLIPPING, HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleObjectClipping(!h.IsObjectClippingEnabled()); }},
+    {HotkeyID::TOGGLE_FULL_STRAFE,   "Full Strafe",     Constants::Hotkeys::KEY_FULL_STRAFE,     HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleFullStrafe(!h.IsFullStrafeEnabled()); }},
+    {HotkeyID::TOGGLE_NO_FOG,        "No Fog",          Constants::Hotkeys::KEY_NO_FOG,          HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.toggleFog(!h.IsFogEnabled()); }},
+    {HotkeyID::HOLD_SUPER_SPRINT,    "Super Sprint",    Constants::Hotkeys::KEY_SUPER_SPRINT,    HotkeyTriggerType::ON_HOLD,  [](Hack& h, bool held) { h.handleSuperSprint(held); }},
+    {HotkeyID::TOGGLE_SPRINT_PREF,   "Sprint",          Constants::Hotkeys::KEY_SPRINT,          HotkeyTriggerType::ON_PRESS, [this](Hack& /*h*/, bool) { this->m_sprintEnabled = !this->m_sprintEnabled; }},
+    {HotkeyID::HOLD_FLY,             "Fly",             Constants::Hotkeys::KEY_FLY,             HotkeyTriggerType::ON_HOLD,  [](Hack& h, bool held) { h.handleFly(held); }},
+    {HotkeyID::TOGGLE_WINDOW,        "Toggle Window",   Constants::Hotkeys::KEY_TOGGLE_WINDOW,   HotkeyTriggerType::ON_PRESS, [this](Hack& /*h*/, bool) { this->m_windowCollapsed = !this->m_windowCollapsed; }}
+};
 
-    // TODO: Load saved currentKeyCode values from a config file here, overwriting the defaults set in HotkeyInfo constructor
+    // Load saved hotkey configuration
+    LoadHotkeyConfig();
 }
 
 // Renders label, key name, and Change button for a single hotkey configuration
@@ -158,7 +160,7 @@ void HackGUI::HandleHotkeyRebinding() {
             for (auto& hotkey : m_hotkeys) {
                 if (hotkey.id == m_rebinding_hotkey_id) {
                     hotkey.currentKeyCode = captured_vk; // Assign the captured key (or 0 for unbind)
-                    // TODO: Save updated hotkeys to config file here
+                    SaveHotkeyConfig(); // Save updated configuration
                     break; // Found and updated
                 }
             }
@@ -239,14 +241,14 @@ void HackGUI::RenderHotkeysSection() {
             for (auto& hotkey : m_hotkeys) {
                 hotkey.currentKeyCode = hotkey.defaultKeyCode;
             }
-            // TODO: Save updated hotkeys to config file
+            SaveHotkeyConfig(); // Save updated configuration
         }
         ImGui::SameLine();
         if (ImGui::Button("Unbind All")) {
             for (auto& hotkey : m_hotkeys) {
                 hotkey.currentKeyCode = 0; // 0 represents unbound
             }
-            // TODO: Save updated hotkeys to config file
+            SaveHotkeyConfig(); // Save updated configuration
         }
         ImGui::Spacing();
     }
@@ -325,21 +327,28 @@ bool HackGUI::renderUI()
         first_frame = false;
     }
 
+    // Process hotkeys BEFORE window rendering to ensure global hotkey response
+    m_hack.refreshAddresses(); // Ensure pointers are valid before reading/writing
+    HandleHotkeys();           // Process registered hotkeys (including toggle window)
+    HandleHotkeyRebinding();   // Handle input if rebinding
+
     const float min_window_width = 550.0f;
     ImGui::SetNextWindowSizeConstraints(ImVec2(min_window_width, 300.0f), ImVec2(FLT_MAX, FLT_MAX));
 
     ImGuiWindowFlags window_flags = 0;
+    
+    // Always render window, but set collapsed state
+    ImGui::SetNextWindowCollapsed(m_windowCollapsed, ImGuiCond_Always);
     ImGui::Begin("Jack's GW2 External", &main_window_open, window_flags);
 
     if (!main_window_open) {
         exit_requested = true; // Request exit if user closes window
     }
 
-    RenderAlwaysOnTop();
+    // Sync our state with ImGui's actual collapsed state
+    m_windowCollapsed = ImGui::IsWindowCollapsed();
 
-    m_hack.refreshAddresses(); // Ensure pointers are valid before reading/writing
-    HandleHotkeys();           // Process registered hotkeys
-    HandleHotkeyRebinding();   // Handle input if rebinding
+    RenderAlwaysOnTop();
 
     // Apply continuous states based on user preference toggles
     m_hack.handleSprint(m_sprintEnabled);
@@ -665,5 +674,99 @@ if (ImGui::BeginPopupModal("Import Settings", nullptr, ImGuiWindowFlags_NoResize
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
+    }
+}
+
+// Save hotkey configuration to config/hotkeys.json
+void HackGUI::SaveHotkeyConfig() {
+    namespace fs = std::filesystem;
+    using json = nlohmann::json;
+
+    try {
+        // Create config directory if it doesn't exist
+        fs::path configDir = "config";
+        if (!fs::exists(configDir)) {
+            fs::create_directories(configDir);
+        }
+
+        // Build JSON object
+        json hotkeyConfig = json::object();
+        for (const auto& hotkey : m_hotkeys) {
+            hotkeyConfig[hotkey.name] = hotkey.currentKeyCode;
+        }
+
+        // Write to file
+        fs::path configFile = configDir / "hotkeys.json";
+        std::ofstream file(configFile);
+        if (file.is_open()) {
+            file << hotkeyConfig.dump(4); // Pretty print with 4 spaces indentation
+            file.close();
+        } else {
+            StatusUI::AddMessage("WARN: Failed to save hotkey configuration to " + configFile.string());
+        }
+    }
+    catch (const std::exception& e) {
+        StatusUI::AddMessage("ERROR: Exception while saving hotkey config: " + std::string(e.what()));
+    }
+}
+
+// Load hotkey configuration from config/hotkeys.json
+void HackGUI::LoadHotkeyConfig() {
+    namespace fs = std::filesystem;
+    using json = nlohmann::json;
+
+    try {
+        fs::path configFile = "config" / fs::path("hotkeys.json");
+        
+        // Check if config file exists
+        if (!fs::exists(configFile)) {
+            // No config file exists, use defaults (already set in constructor)
+            // Apply defaults to currentKeyCode
+            for (auto& hotkey : m_hotkeys) {
+                hotkey.currentKeyCode = hotkey.defaultKeyCode;
+            }
+            // Save the default configuration
+            SaveHotkeyConfig();
+            return;
+        }
+
+        // Read JSON file
+        std::ifstream file(configFile);
+        if (!file.is_open()) {
+            StatusUI::AddMessage("WARN: Failed to open hotkey config file, using defaults");
+            // Apply defaults
+            for (auto& hotkey : m_hotkeys) {
+                hotkey.currentKeyCode = hotkey.defaultKeyCode;
+            }
+            return;
+        }
+
+        json hotkeyConfig;
+        file >> hotkeyConfig;
+        file.close();
+
+        // Apply loaded configuration
+        for (auto& hotkey : m_hotkeys) {
+            if (hotkeyConfig.contains(hotkey.name)) {
+                hotkey.currentKeyCode = hotkeyConfig[hotkey.name].get<int>();
+            } else {
+                // If hotkey not in config, use default
+                hotkey.currentKeyCode = hotkey.defaultKeyCode;
+            }
+        }
+    }
+    catch (const json::exception& e) {
+        StatusUI::AddMessage("ERROR: JSON parsing error in hotkey config: " + std::string(e.what()));
+        // On error, use defaults
+        for (auto& hotkey : m_hotkeys) {
+            hotkey.currentKeyCode = hotkey.defaultKeyCode;
+        }
+    }
+    catch (const std::exception& e) {
+        StatusUI::AddMessage("ERROR: Exception while loading hotkey config: " + std::string(e.what()));
+        // On error, use defaults
+        for (auto& hotkey : m_hotkeys) {
+            hotkey.currentKeyCode = hotkey.defaultKeyCode;
+        }
     }
 }
