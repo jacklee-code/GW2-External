@@ -117,6 +117,8 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="hack.cpp" />
     <ClCompile Include="status_ui.cpp" />
+    <ClCompile Include="teleport_manager.cpp" />
+    <ClCompile Include="ui_helpers.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="constants.h" />
@@ -140,12 +142,21 @@
     <ClInclude Include="process_memory_manager.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="status_ui.h" />
+    <ClInclude Include="teleport_manager.h" />
+    <ClInclude Include="ui_helpers.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="KX-Trainer-Free.rc" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\images\app_icon.ico" />
+    <Image Include="..\images\bitmap1.bmp" />
+    <Image Include="..\images\bitmap2.bmp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="QUICK_REFERENCE.md" />
+    <None Include="TELEPORTS_FEATURE.md" />
+    <None Include="UPDATE_SUMMARY.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

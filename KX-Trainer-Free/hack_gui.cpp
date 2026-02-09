@@ -1,8 +1,9 @@
-#include "hack_gui.h"
+﻿#include "hack_gui.h"
 #include "hack.h"
 #include "constants.h"
 #include "status_ui.h"
 #include "key_utils.h"
+#include "ui_helpers.h"
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -12,8 +13,10 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <fstream>
+#include <sstream>
 
-HackGUI::HackGUI(Hack& hack) : m_hack(hack), m_rebinding_hotkey_id(HotkeyID::NONE) {
+HackGUI::HackGUI(Hack& hack) : m_hack(hack), m_rebinding_hotkey_id(HotkeyID::NONE), m_deleteTeleportGroupIndex(0) {
     // Define all available hotkeys and their default properties
     m_hotkeys = {
         {HotkeyID::SAVE_POS,             "Save Position",   Constants::Hotkeys::KEY_SAVEPOS,         HotkeyTriggerType::ON_PRESS, [](Hack& h, bool) { h.savePosition(); }},
@@ -281,9 +284,9 @@ void HackGUI::RenderLogSection() {
 
 // Renders the collapsible info/about section
 void HackGUI::RenderInfoSection() {
-    if (ImGui::CollapsingHeader("Info")) {
-        ImGui::Text("KX Trainer by Krixx");
-        ImGui::Text("Consider the paid version at kxtools.xyz!");
+if (ImGui::CollapsingHeader("Info")) {
+    ImGui::Text("Jack's GW2 External");
+    ImGui::Text("Modified by Jack Lee");
         ImGui::Separator();
 
         // GitHub Link
@@ -313,13 +316,20 @@ void HackGUI::RenderInfoSection() {
 bool HackGUI::renderUI()
 {
     static bool main_window_open = true;
+    static bool first_frame = true;
     bool exit_requested = false;
 
-    const float min_window_width = 400.0f;
-    ImGui::SetNextWindowSizeConstraints(ImVec2(min_window_width, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
+    // Set initial window size on first frame
+    if (first_frame) {
+        ImGui::SetNextWindowSize(ImVec2(600.0f, 500.0f), ImGuiCond_FirstUseEver);
+        first_frame = false;
+    }
+
+    const float min_window_width = 550.0f;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(min_window_width, 300.0f), ImVec2(FLT_MAX, FLT_MAX));
 
     ImGuiWindowFlags window_flags = 0;
-    ImGui::Begin("KX Trainer", &main_window_open, window_flags);
+    ImGui::Begin("Jack's GW2 External", &main_window_open, window_flags);
 
     if (!main_window_open) {
         exit_requested = true; // Request exit if user closes window
@@ -345,22 +355,527 @@ bool HackGUI::renderUI()
             ImGui::EndTabItem();
         }
 
-        // Teleport Tab
-        if (ImGui::BeginTabItem("Teleport")) {
-            // Content from RenderActionsSection()
-            constexpr float BUTTON_WIDTH_RATIO = 0.48f; // Approx half width for side-by-side buttons
-            float button_width = ImGui::GetContentRegionAvail().x * BUTTON_WIDTH_RATIO;
-            if (ImGui::Button("Save Position", ImVec2(button_width, 0))) { m_hack.savePosition(); }
-            ImGui::SameLine();
-            if (ImGui::Button("Load Position", ImVec2(-1.0f, 0))) { m_hack.loadPosition(); } // Fill remaining
-            ImGui::Spacing();
+        // Teleports Tab
+        if (ImGui::BeginTabItem("Teleports")) {
+            RenderTeleportsTab();
             ImGui::EndTabItem();
         }
 
-        ImGui::EndTabBar();
+    ImGui::EndTabBar();
     }
+
+    // Render popup modals (must be within the same window context)
+    RenderDeleteGroupConfirmWindow();
+    RenderDeleteTeleportConfirmWindow();
+    RenderImportScaleWindow();
 
     ImGui::End();
 
+    // Render independent sub-windows (outside main window)
+    RenderEditTeleportWindow();
+    RenderAddGroupWindow();
+    RenderRenameGroupWindow();
+
     return exit_requested;
+}
+
+void HackGUI::RenderTeleportsTab() {
+    // Group selection dropdown at the bottom
+    ImGui::BeginChild("TeleportList", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2), true);
+    
+    const TeleportGroup* currentGroup = m_teleportManager.getGroup(m_selectedGroupIndex);
+    if (currentGroup) {
+        const float editBtnWidth = 50.0f;
+        const float deleteBtnWidth = 30.0f;
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        
+        for (size_t i = 0; i < currentGroup->teleports.size(); ++i) {
+            const auto& tp = currentGroup->teleports[i];
+            
+            // Calculate teleport button width (fill remaining space)
+            float availWidth = ImGui::GetContentRegionAvail().x;
+            float teleportBtnWidth = availWidth - editBtnWidth - deleteBtnWidth - (spacing * 2);
+            
+            // Teleport button (main area)
+            if (ImGui::Button(tp.name.c_str(), ImVec2(teleportBtnWidth, 0))) {
+                // Teleport to this position
+                m_hack.writeXYZ(tp.coordinates[0], tp.coordinates[1], tp.coordinates[2]);
+                StatusUI::AddMessage("INFO: Teleported to " + tp.name);
+            }
+            
+            ImGui::SameLine();
+            
+            // Edit button
+            std::string editLabel = "Edit##" + std::to_string(i);
+            if (ImGui::Button(editLabel.c_str(), ImVec2(editBtnWidth, 0))) {
+                m_editingTeleportIndex = static_cast<int>(i);
+                m_showEditTeleportWindow = true;
+                m_focusNextWindow = true;
+                strcpy_s(m_editTeleportName, tp.name.c_str());
+                m_editTeleportCoords[0] = tp.coordinates[0];
+                m_editTeleportCoords[1] = tp.coordinates[1];
+                m_editTeleportCoords[2] = tp.coordinates[2];
+                m_editTeleportMapId = tp.mapId;
+            }
+            
+            ImGui::SameLine();
+            
+            // Delete button - Fixed: Store both group and teleport index
+            std::string deleteLabel = "X##tp_" + std::to_string(m_selectedGroupIndex) + "_" + std::to_string(i);
+            if (ImGui::Button(deleteLabel.c_str(), ImVec2(deleteBtnWidth, 0))) {
+                m_deleteTeleportGroupIndex = m_selectedGroupIndex; // Store current group
+                m_deleteTeleportIndex = static_cast<int>(i);
+                m_showDeleteTeleportConfirm = true;
+                m_focusNextWindow = true;
+            }
+        }
+    }
+    
+    ImGui::EndChild();
+    
+    // Bottom control bar
+    ImGui::Separator();
+    
+    // Calculate widths for smart layout
+    const float availWidth = ImGui::GetContentRegionAvail().x;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float iconBtnWidth = 30.0f;  // Width for icon buttons
+    const float minComboWidth = 120.0f;  // Minimum width for combo
+    const float minAddTeleportWidth = 100.0f;  // Minimum width for "Add Teleport"
+    
+    // Calculate minimum required width
+    const float minRequiredWidth = minComboWidth + spacing + 
+                                   iconBtnWidth + spacing +  // Add Group
+                                   iconBtnWidth + spacing +  // Rename
+                                   iconBtnWidth + spacing +  // Delete
+                                   minAddTeleportWidth + spacing + 
+                                   iconBtnWidth;  // Import
+    
+    // Distribute extra space between combo and Add Teleport button
+    float comboWidth = minComboWidth;
+    float addTeleportWidth = minAddTeleportWidth;
+    
+    if (availWidth > minRequiredWidth) {
+        float extraSpace = availWidth - minRequiredWidth;
+        // Give 60% to combo, 40% to Add Teleport
+        comboWidth += extraSpace * 0.6f;
+        addTeleportWidth += extraSpace * 0.4f;
+    }
+    
+    // Group dropdown
+    if (currentGroup) {
+        ImGui::SetNextItemWidth(comboWidth);
+        if (ImGui::BeginCombo("##GroupSelect", currentGroup->name.c_str())) {
+            for (size_t i = 0; i < m_teleportManager.getGroupCount(); ++i) {
+                const TeleportGroup* group = m_teleportManager.getGroup(i);
+                if (group) {
+                    bool isSelected = (m_selectedGroupIndex == static_cast<int>(i));
+                    if (ImGui::Selectable(group->name.c_str(), isSelected)) {
+                        m_selectedGroupIndex = static_cast<int>(i);
+                    }
+                    if (isSelected) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
+    
+    ImGui::SameLine();
+    
+    // Add Group button
+    if (ImGui::Button(u8"\u2795##AddGroup", ImVec2(iconBtnWidth, 0))) {  // ➕
+        m_showAddGroupWindow = true;
+        m_focusNextWindow = true;
+        m_newGroupName[0] = '\0';
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Add Group");
+    }
+    
+    ImGui::SameLine();
+    
+    // Rename Group button
+    if (ImGui::Button(u8"\u270E##RenameGroup", ImVec2(iconBtnWidth, 0))) {  // ✎
+        if (currentGroup) {
+            m_showRenameGroupWindow = true;
+            m_focusNextWindow = true;
+            strcpy_s(m_newGroupName, currentGroup->name.c_str());
+        }
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Rename Group");
+    }
+    
+    ImGui::SameLine();
+    
+    // Delete Group button
+    if (ImGui::Button(u8"\u274C##DeleteGroup", ImVec2(iconBtnWidth, 0))) {  // ❌
+        m_deleteGroupIndex = m_selectedGroupIndex;
+        m_showDeleteGroupConfirm = true;
+        m_focusNextWindow = true;
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Delete Group");
+    }
+    
+    ImGui::SameLine();
+    
+    // Add Teleport button
+    if (ImGui::Button("Add Teleport", ImVec2(addTeleportWidth, 0))) {
+        // Read current game position
+        m_hack.refreshAddresses();
+        m_hack.readXYZ();
+        
+        // Create new teleport with current position
+        Teleport newTp;
+        newTp.name = m_teleportManager.generateUniqueTeleportName(m_selectedGroupIndex);
+        newTp.coordinates[0] = m_hack.m_xValue;
+        newTp.coordinates[1] = m_hack.m_yValue;
+        newTp.coordinates[2] = m_hack.m_zValue;
+        newTp.mapId = -1;
+        
+        m_teleportManager.addTeleport(m_selectedGroupIndex, newTp);
+        StatusUI::AddMessage("INFO: Added teleport: " + newTp.name);
+    }
+    
+    ImGui::SameLine();
+    
+    // Import JSON button
+    if (ImGui::Button(u8"\u2B07##ImportJSON", ImVec2(iconBtnWidth, 0))) {  // ⬇
+        std::string filepath = UIHelpers::OpenFileDialog("JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0");
+        if (!filepath.empty()) {
+            // Read file content
+            std::ifstream file(filepath);
+            if (file.is_open()) {
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                file.close();
+                
+                m_importJsonContent = buffer.str();
+                m_importFilePath = filepath;
+                m_importScaleFactor = 1.0f;
+                m_importScalePreset = 0;
+                m_showImportScaleWindow = true;
+            } else {
+                StatusUI::AddMessage("ERROR: Failed to open file: " + filepath);
+            }
+        }
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Import JSON");
+    }
+}
+
+void HackGUI::RenderEditTeleportWindow() {
+if (!m_showEditTeleportWindow) return;
+    
+// Center window on screen
+ImGuiViewport* viewport = ImGui::GetMainViewport();
+ImGui::SetNextWindowPos(ImVec2(viewport->GetCenter().x - 200, viewport->GetCenter().y - 150), ImGuiCond_Appearing);
+ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+if (m_focusNextWindow) {
+    ImGui::SetNextWindowFocus();
+    m_focusNextWindow = false;
+}
+    
+    bool windowOpen = m_showEditTeleportWindow;
+    ImGui::Begin("Edit Teleport", &windowOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking);
+    
+    // Update flag if window was closed via X button
+    if (!windowOpen) {
+        m_showEditTeleportWindow = false;
+    }
+    
+    ImGui::InputText("Name", m_editTeleportName, sizeof(m_editTeleportName));
+    
+    ImGui::Separator();
+    ImGui::Text("Coordinates:");
+    ImGui::InputFloat("X", &m_editTeleportCoords[0], 0.0f, 0.0f, "%.6f");
+    ImGui::InputFloat("Y", &m_editTeleportCoords[1], 0.0f, 0.0f, "%.6f");
+    ImGui::InputFloat("Z", &m_editTeleportCoords[2], 0.0f, 0.0f, "%.6f");
+    
+    ImGui::SameLine();
+    if (ImGui::Button("Set Current Position")) {
+        m_hack.refreshAddresses();
+        m_hack.readXYZ();
+        m_editTeleportCoords[0] = m_hack.m_xValue;
+        m_editTeleportCoords[1] = m_hack.m_yValue;
+        m_editTeleportCoords[2] = m_hack.m_zValue;
+    }
+    
+    ImGui::Separator();
+    ImGui::Text("Map:");
+    ImGui::InputInt("Map ID", &m_editTeleportMapId);
+    
+    ImGui::Separator();
+    
+    if (ImGui::Button("Save", ImVec2(120, 0))) {
+        Teleport updatedTp(
+            m_editTeleportName,
+            m_editTeleportCoords[0],
+            m_editTeleportCoords[1],
+            m_editTeleportCoords[2],
+            m_editTeleportMapId
+        );
+        
+        if (m_teleportManager.updateTeleport(m_selectedGroupIndex, m_editingTeleportIndex, updatedTp)) {
+            StatusUI::AddMessage("INFO: Teleport updated");
+            m_showEditTeleportWindow = false;
+        }
+    }
+    
+    ImGui::SameLine();
+    
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        m_showEditTeleportWindow = false;
+    }
+    
+    ImGui::End();
+}
+
+void HackGUI::RenderAddGroupWindow() {
+if (!m_showAddGroupWindow) return;
+    
+// Center window on screen
+ImGuiViewport* viewport = ImGui::GetMainViewport();
+ImGui::SetNextWindowPos(ImVec2(viewport->GetCenter().x - 150, viewport->GetCenter().y - 60), ImGuiCond_Appearing);
+ImGui::SetNextWindowSize(ImVec2(300, 120), ImGuiCond_Always);
+if (m_focusNextWindow) {
+    ImGui::SetNextWindowFocus();
+    m_focusNextWindow = false;
+}
+    
+    bool windowOpen = m_showAddGroupWindow;
+    ImGui::Begin("Add Group", &windowOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking);
+    
+    // Update flag if window was closed via X button
+    if (!windowOpen) {
+        m_showAddGroupWindow = false;
+    }
+    
+    ImGui::InputText("Group Name", m_newGroupName, sizeof(m_newGroupName));
+    
+    ImGui::Separator();
+    
+    if (ImGui::Button("Add", ImVec2(120, 0))) {
+        if (strlen(m_newGroupName) > 0) {
+            if (m_teleportManager.addGroup(m_newGroupName)) {
+                m_selectedGroupIndex = static_cast<int>(m_teleportManager.getGroupCount() - 1);
+                StatusUI::AddMessage("INFO: Group added: " + std::string(m_newGroupName));
+                m_showAddGroupWindow = false;
+            }
+        }
+    }
+    
+    ImGui::SameLine();
+    
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        m_showAddGroupWindow = false;
+    }
+    
+    ImGui::End();
+}
+
+void HackGUI::RenderRenameGroupWindow() {
+if (!m_showRenameGroupWindow) return;
+    
+// Center window on screen
+ImGuiViewport* viewport = ImGui::GetMainViewport();
+ImGui::SetNextWindowPos(ImVec2(viewport->GetCenter().x - 150, viewport->GetCenter().y - 60), ImGuiCond_Appearing);
+ImGui::SetNextWindowSize(ImVec2(300, 120), ImGuiCond_Always);
+if (m_focusNextWindow) {
+    ImGui::SetNextWindowFocus();
+    m_focusNextWindow = false;
+}
+    
+    bool windowOpen = m_showRenameGroupWindow;
+    ImGui::Begin("Rename Group", &windowOpen, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking);
+    
+    // Update flag if window was closed via X button
+    if (!windowOpen) {
+        m_showRenameGroupWindow = false;
+    }
+    
+    ImGui::InputText("New Name", m_newGroupName, sizeof(m_newGroupName));
+    
+    ImGui::Separator();
+    
+    if (ImGui::Button("Rename", ImVec2(120, 0))) {
+        if (strlen(m_newGroupName) > 0) {
+            if (m_teleportManager.renameGroup(m_selectedGroupIndex, m_newGroupName)) {
+                StatusUI::AddMessage("INFO: Group renamed to: " + std::string(m_newGroupName));
+                m_showRenameGroupWindow = false;
+            }
+        }
+    }
+    
+    ImGui::SameLine();
+    
+    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        m_showRenameGroupWindow = false;
+    }
+    
+    ImGui::End();
+}
+
+void HackGUI::RenderImportScaleWindow() {
+    if (m_showImportScaleWindow) {
+        ImGui::OpenPopup("Import Settings");
+        m_showImportScaleWindow = false;
+    }
+    
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(380, 0));
+    
+    if (ImGui::BeginPopupModal("Import Settings", nullptr, ImGuiWindowFlags_NoResize)) {
+        ImGui::Text("Coordinate Scale");
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        ImGui::Text("Scale all imported X, Y, Z coordinates.");
+        ImGui::Text("Default is 1.0 (no change).");
+        ImGui::Spacing();
+        
+        // Preset buttons
+        const char* presetLabels[] = { "Custom", "x1 (None)", "/32", "/10", "x10", "x32" };
+        const float presetValues[] = { 0.0f, 1.0f, 1.0f / 32.0f, 0.1f, 10.0f, 32.0f };
+        const int presetCount = 6;
+        
+        ImGui::Text("Presets:");
+        ImGui::SameLine();
+        for (int i = 1; i < presetCount; ++i) {
+            if (i > 1) ImGui::SameLine();
+            if (ImGui::Button(presetLabels[i])) {
+                m_importScaleFactor = presetValues[i];
+                m_importScalePreset = i;
+            }
+        }
+        
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputFloat("##ScaleFactor", &m_importScaleFactor, 0.01f, 1.0f, "%.6f")) {
+            m_importScalePreset = 0; // Custom
+        }
+        
+        if (m_importScaleFactor == 0.0f) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Scale cannot be 0!");
+        }
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        
+        bool canImport = (m_importScaleFactor != 0.0f);
+        if (!canImport) {
+            ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+        }
+        
+        if (ImGui::Button("Import", ImVec2(120, 0))) {
+            if (m_teleportManager.importFromJsonScaled(m_importJsonContent, m_importScaleFactor)) {
+                StatusUI::AddMessage("INFO: Successfully imported from " + m_importFilePath);
+                if (m_selectedGroupIndex >= static_cast<int>(m_teleportManager.getGroupCount())) {
+                    m_selectedGroupIndex = static_cast<int>(m_teleportManager.getGroupCount()) - 1;
+                }
+            }
+            m_importJsonContent.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        
+        if (!canImport) {
+            ImGui::PopItemFlag();
+            ImGui::PopStyleVar();
+        }
+        
+        ImGui::SameLine();
+        
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_importJsonContent.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        
+        ImGui::EndPopup();
+    }
+}
+
+void HackGUI::RenderDeleteGroupConfirmWindow() {
+    if (m_showDeleteGroupConfirm) {
+        ImGui::OpenPopup("Confirm Delete Group");
+        m_showDeleteGroupConfirm = false;
+    }
+    
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(350, 0));
+    
+    if (ImGui::BeginPopupModal("Confirm Delete Group", nullptr, ImGuiWindowFlags_NoResize)) {
+        const TeleportGroup* group = m_teleportManager.getGroup(m_deleteGroupIndex);
+        if (group) {
+            ImGui::Text("Delete group '%s'?", group->name.c_str());
+            ImGui::Text("This will delete all teleports in this group.");
+        } else {
+            ImGui::Text("Invalid group selected.");
+        }
+        
+        ImGui::Separator();
+        
+        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+            if (m_teleportManager.deleteGroup(m_deleteGroupIndex)) {
+                StatusUI::AddMessage("INFO: Group deleted");
+                if (m_selectedGroupIndex >= static_cast<int>(m_teleportManager.getGroupCount())) {
+                    m_selectedGroupIndex = static_cast<int>(m_teleportManager.getGroupCount()) - 1;
+                }
+                if (m_selectedGroupIndex < 0) m_selectedGroupIndex = 0;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        
+        ImGui::SameLine();
+        
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        
+        ImGui::EndPopup();
+    }
+}
+
+void HackGUI::RenderDeleteTeleportConfirmWindow() {
+    if (m_showDeleteTeleportConfirm) {
+        ImGui::OpenPopup("Confirm Delete Teleport");
+        m_showDeleteTeleportConfirm = false;
+    }
+    
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(350, 0));
+    
+    if (ImGui::BeginPopupModal("Confirm Delete Teleport", nullptr, ImGuiWindowFlags_NoResize)) {
+        const TeleportGroup* group = m_teleportManager.getGroup(m_deleteTeleportGroupIndex);
+        if (group && m_deleteTeleportIndex >= 0 && m_deleteTeleportIndex < static_cast<int>(group->teleports.size())) {
+            const auto& tp = group->teleports[m_deleteTeleportIndex];
+            ImGui::Text("Delete teleport '%s'?", tp.name.c_str());
+        } else {
+            ImGui::Text("Invalid teleport selected.");
+        }
+        
+        ImGui::Separator();
+        
+        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+            if (m_teleportManager.deleteTeleport(m_deleteTeleportGroupIndex, m_deleteTeleportIndex)) {
+                StatusUI::AddMessage("INFO: Teleport deleted");
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        
+        ImGui::SameLine();
+        
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        
+        ImGui::EndPopup();
+    }
 }

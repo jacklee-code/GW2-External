@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ generated include file.
-// Used by KX-Trainer-Free.rc
+// Microsoft Visual C++ 產生的 Include 檔案。
+// 由 KX-Trainer-Free.rc 使用
 //
 #define IDI_ICON1                       101
 

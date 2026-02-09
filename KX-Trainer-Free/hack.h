@@ -36,6 +36,11 @@ public:
     // Position saving/loading
     void savePosition();
     void loadPosition();
+    void readXYZ();
+    void writeXYZ(float xValue, float yValue, float zValue);
+
+    // Public access to coordinates for GUI
+    float m_xValue = 0.0f, m_yValue = 0.0f, m_zValue = 0.0f;
 
     // --- State Getters ---
     bool IsFogEnabled() const;
@@ -78,7 +83,6 @@ private:
     uintptr_t m_wallClimbAddr = 0;
 
     // Core memory values / state
-    float m_xValue = 0.0f, m_yValue = 0.0f, m_zValue = 0.0f;
     float m_xSave = 0.0f, m_ySave = 0.0f, m_zSave = 0.0f;
     float m_speed = 0.0f, m_savedSpeed = 0.0f;
     float m_invisibilityValue = 0.0f;
@@ -102,8 +106,6 @@ private:
     void findProcess();
     void performBaseScan();
     void scanForPatterns();
-    void readXYZ();
-    void writeXYZ(float xValue, float yValue, float zValue);
     uintptr_t refreshAddr(const std::vector<unsigned int>& offsets);
     void reportStatus(const std::string& message);
 };

@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 
 #include "gui_style.h"
 #include "imgui/imgui.h"
@@ -26,7 +26,7 @@ namespace GUIStyle {
         return ""; // Return empty string on failure
     }
 
-    // Loads the primary application font (Bahnschrift).
+    // Loads the primary application font with Unicode support (including Chinese, Japanese, Korean).
     // Should be called after ImGui::CreateContext() and before renderer init.
     // Returns true if custom font was loaded successfully, false otherwise.
     bool LoadAppFont(float fontSize) {
@@ -38,18 +38,88 @@ namespace GUIStyle {
 
         std::string fontsDir = GetSystemFontsPath();
         if (!fontsDir.empty()) {
-            std::string fontPath = fontsDir + "\\bahnschrift.ttf"; // Use Bahnschrift
+            // Try multiple fonts in order of preference
+            // Microsoft JhengHei (微軟正黑體) - Excellent for Traditional Chinese
+            // Segoe UI - Good for Western languages and many Unicode chars
+            const char* fontFiles[] = {
+                "\\msjh.ttc",       // Microsoft JhengHei (supports Chinese)
+                "\\msyh.ttc",       // Microsoft YaHei (Simplified Chinese)
+                "\\seguiemj.ttf",   // Segoe UI Emoji
+                "\\segoeui.ttf",    // Segoe UI
+                "\\arial.ttf"       // Arial (basic fallback)
+            };
 
-            ImFont* customFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), fontSize);
+            ImFont* customFont = nullptr;
+            std::string successfulPath;
+
+            // Configure font to include Unicode ranges
+            ImFontConfig fontConfig;
+            fontConfig.OversampleH = 2;
+            fontConfig.OversampleV = 1;
+            fontConfig.PixelSnapH = true;
+
+            // Try to load fonts in order
+            for (const char* fontFile : fontFiles) {
+                std::string fontPath = fontsDir + fontFile;
+                
+                // Build glyph ranges: Default + Chinese Full + Japanese + Korean + Symbols/Emoji
+                ImFontGlyphRangesBuilder builder;
+                builder.AddRanges(io.Fonts->GetGlyphRangesDefault());              // Basic Latin + Latin Supplement
+                builder.AddRanges(io.Fonts->GetGlyphRangesChineseFull());          // Full Chinese (Traditional + Simplified)
+                builder.AddRanges(io.Fonts->GetGlyphRangesJapanese());             // Japanese Hiragana, Katakana, Kanji
+                builder.AddRanges(io.Fonts->GetGlyphRangesKorean());               // Korean
+                
+                // Add specific Unicode ranges for symbols and emoji we use
+                static const ImWchar icon_ranges[] = {
+                    0x2700, 0x27BF,  // Dingbats (includes ✏ at 0x270F)
+                    0x2B00, 0x2BFF,  // Miscellaneous Symbols and Arrows (includes ➕ at 0x2795)
+                    0x1F300, 0x1F6FF, // Miscellaneous Symbols and Pictographs (includes 📥 at 0x1F4E5)
+                    0x274C, 0x274C,  // Heavy Ballot X (❌)
+                    0xFE0F, 0xFE0F,  // Variation Selector-16 (for emoji presentation)
+                    0,
+                };
+                builder.AddRanges(icon_ranges);
+                
+                // Build the final glyph ranges
+                static ImVector<ImWchar> ranges;
+                builder.BuildRanges(&ranges);
+
+                customFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), fontSize, &fontConfig, ranges.Data);
+
+                if (customFont) {
+                    successfulPath = fontPath;
+                    break; // Successfully loaded
+                }
+            }
 
             if (customFont) {
+                // Merge Segoe UI Emoji as fallback for symbols/emoji
+                std::string emojiPath = fontsDir + "\\seguiemj.ttf";
+                ImFontConfig emojiConfig;
+                emojiConfig.MergeMode = true; // Merge into main font
+                emojiConfig.OversampleH = 2;
+                emojiConfig.OversampleV = 1;
+                emojiConfig.PixelSnapH = true;
+                emojiConfig.GlyphMinAdvanceX = fontSize; // Monospace
+                
+                static const ImWchar emoji_ranges[] = {
+                    0x2700, 0x27BF,   // Dingbats
+                    0x2B00, 0x2BFF,   // Misc Symbols and Arrows
+                    0x1F300, 0x1F6FF, // Emoji
+                    0x274C, 0x274C,   // ❌
+                    0xFE0F, 0xFE0F,   // Variation Selector
+                    0,
+                };
+                
+                io.Fonts->AddFontFromFileTTF(emojiPath.c_str(), fontSize, &emojiConfig, emoji_ranges);
+                
                 // Set the loaded font as the default for ImGui to use.
                 io.FontDefault = customFont;
                 success = true;
             }
             else {
-                // Log or notify if Bahnschrift isn't found (it's not on all Windows versions)
-                MessageBoxA(NULL, ("Failed to load Bahnschrift font from: " + fontPath + ". Using default.").c_str(), "Font Warning", MB_OK | MB_ICONWARNING);
+                // Log warning if no font could be loaded
+                MessageBoxA(NULL, "Failed to load any Unicode font. Using default.", "Font Warning", MB_OK | MB_ICONWARNING);
                 // Fallback to default font is already handled by AddFontDefault()
             }
         }
